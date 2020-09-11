@@ -1,0 +1,2345 @@
+HR_RO_WORKDAYS_IN_INTERVAL  - кол-во рабочих дней и выходных между интервалом
+FKK_DTE_DAYS_PER_MONTH      - кол-во дней в месяце по дате
+BKK_GET_MONTH_LASTDAY       - последний день месяца
+HR_PT_ADD_MONTH_TO_DATE     - к дате добавить количество месяцев(12, +, =)
+DATE_CONVERT_TO_FACTORYDATE - проверяет рабочий день или нет, если нет, то возвращает дату(+, -) след. от выходной
+HR_RO_COMPUTE_DATE_INTERVAL - возращает кол-во дней между двумя датами, к дате добавить кол-во дней, лет
+CACS_DATE_GET_YEAR_MONTH    - получить месяц и год по дате
+________________________________________________________________________
+" Convert string date(char10) to dats
+DATA: l_v_date1 TYPE char10,
+      l_v_date2 TYPE dats.
+l_v_date1 = '07.05.2020'.
+CALL FUNCTION 'DATE_CONV_EXT_TO_INT'
+  EXPORTING
+    i_date_ext = l_v_date1
+  IMPORTING
+    e_date_int = l_v_date2
+  EXCEPTIONS
+    error      = 1
+    OTHERS     = 2.
+________________________________________________________________________
+
+BAPI_USER_GET_DETAIL          - данные пользователя
+HR_GETEMPLOYEEDATA_FROMUSER   - данные пользователя ( удобные )
+HR_GET_USER_FROM_EMPLOYEE     - по табельному найти имя пользователя
+HR_GET_EMPLOYEES_FROM_USER_DB - по пользователю найти табельный
+ZHR_GET_HEAD_ID 	      - основные данные по табельному номеру
+__________________________________________________________________________________________________________________
+" работа с таймстемпом
+DATA: lv_timestamp TYPE timestampl,
+      BEGIN OF ls_data,
+        yyyy(4),      " Год
+        mm(2),        " Месяц
+        dd(2),        " День
+        hh(2),        " Часы
+        mn(2),        " Минуты
+        ss(2),        " Секунды
+        comma(1),     " Кома
+        sssssss(7),   " Доли секунды
+      END OF ls_data.
+DATA: lv_tmst_text TYPE char255.
+
+GET TIME STAMP FIELD lv_timestamp.
+
+WRITE lv_timestamp TO lv_tmst_text TIME ZONE sy-zonlo.
+WRITE lv_timestamp TO ls_data NO-GROUPING.
+
+WRITE: / 'TimeStampText', 15 lv_tmst_text, '<- с текущим часовым поясом' .
+WRITE: /.
+WRITE: / 'TimeStamp', 15 lv_timestamp.
+WRITE: /.
+WRITE: / 'Год', 15 ls_data-yyyy.
+WRITE: / 'Месяц', 15 ls_data-mm.
+WRITE: / 'День', 15 ls_data-dd.
+WRITE: / 'Часы', 15 ls_data-hh, '<- обрати внимание на часовой пояс'.
+WRITE: / 'Минуты', 15 ls_data-mn.
+WRITE: / 'Секунды', 15 ls_data-ss.
+WRITE: / 'Доли секунды', 15 ls_data-sssssss.
+___________________________________________________________________________________________________________________
+" дата в нормальном виде для вывода (01.01.2000)
+DATA lv_date(12) TYPE c.
+WRITE YOUR_DATE TO lv_date DD/MM/YYYY.
+ev_variable_value = lv_date.
+___________________________________________________________________________________________________________________
+" Конвертация таймстемпа в правильной временной зоне в дату и время 
+CONVERT TIME STAMP lv_timestamp TIME ZONE sy-zonlo INTO DATE lv_date
+                                                        TIME lv_time.
+___________________________________________________________________________________________________________________
+" нарисовать попап с нужными данными
+" 1. создаем окно, вызываем его в нашей программе, устанавливаем: статус, заголовок
+" 2. создаем модуль PROCESS ON VALUE-REQUEST.
+"  	              FIELD gv_wig2 MODULE pvq_sh_wig2.
+" 3. добавляем в pvq_sh_wig2 следующий код:
+TYPES:
+  BEGIN OF t_wig2,
+    wig2 TYPE	zwig2_e,
+    fio  TYPE zhr_empl_fio,
+  END OF t_wig2.
+ DATA:
+  lt_wig2      TYPE TABLE OF t_wig2,
+  lv_dynprofld TYPE help_info-dynprofld,
+  lv_retfield  TYPE dfies-fieldname.
+
+" выбираем нужные данные
+SELECT wig2 fio
+  FROM zaa_invv_wig2
+  INTO TABLE lt_wig2
+  WHERE flag = 'X'
+    AND begda <= gs_doc-dt_innv
+    AND endda <= gs_doc-dt_innv.
+
+IF sy-subrc <> 0 AND lt_wig2 IS INITIAL.
+  MESSAGE 'Данные не найдены' TYPE 'W'.
+  RETURN.
+ENDIF.
+" вызываем pop-up окно
+lv_dynprofld = lv_retfield = 'WIG2'.
+CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+  EXPORTING
+    retfield        = lv_retfield
+    dynpprog        = sy-repid
+    dynpnr          = sy-dynnr
+    dynprofield     = lv_dynprofld
+    value_org       = 'S'
+  TABLES
+    value_tab       = lt_wig2
+  EXCEPTIONS
+    parameter_error = 1
+    no_values_found = 2
+    OTHERS          = 3.
+IF sy-subrc NE 0.
+  MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+ENDIF.
+___________________________________________________________________________________________________________________
+" Вывод данных в ALV
+DATA: ls_variant TYPE disvariant,
+      ls_layout  TYPE slis_layout_alv.
+
+ls_variant-report = sy-repid.
+ls_variant-handle = 'PRO'.
+ls_layout-colwidth_optimize = 'X'.
+
+"выводим протокол
+CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+  EXPORTING
+    i_structure_name = 'ZAA_CH_EQUI_K_STRU' " Структура БД с полями вывода
+    i_grid_title     = 'Протокол обработки'
+    is_layout        = ls_layout
+    i_save           = 'A'
+    is_variant       = ls_variant
+  TABLES
+    t_outtab         = lt_data2 " таблица с данными
+  EXCEPTIONS
+    program_error    = 1
+    OTHERS           = 2.
+IF sy-subrc <> 0.
+  MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+ENDIF.
+___________________________________________________________________________________________________________________
+" окно выбора файла + чтение файла во внутреннюю таблицу
+TYPES:
+  BEGIN OF t_txt,
+    str TYPE string,
+  END OF t_txt.
+
+TYPES:
+  BEGIN OF t_imp,
+    anln1(12),
+    anln2(4),
+    image(120),
+    equipmnt_typ(4),
+    mark(120),
+    model(120),
+  END OF t_imp.
+
+DATA:
+  lt_filetable    TYPE filetable,
+  lv_filename     TYPE string,
+  l_rc            TYPE i,
+  lt_txt          TYPE TABLE OF t_txt,
+  ls_txt          TYPE t_txt,
+  lt_imp          TYPE TABLE OF t_imp,
+  ls_imp          TYPE t_imp.
+
+" Выбор файла
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR pa_fil. " путь
+  CALL METHOD cl_gui_frontend_services=>file_open_dialog
+    EXPORTING
+      window_title      = 'Выберите файл для импорта'
+      initial_directory = 'c:\'
+      multiselection    = abap_false
+    CHANGING
+      file_table        = lt_filetable
+      rc                = l_rc.
+  IF l_rc > 0.
+    READ TABLE lt_filetable INTO pa_fil INDEX 1.
+  ENDIF.
+
+START-OF-SELECTION.
+
+  " Загрузка файла
+  lv_filename = pa_fil.
+  CALL FUNCTION 'GUI_UPLOAD'
+    EXPORTING
+      filename                = lv_filename
+      codepage                = '1504'       " Кодировка с кирилицей
+    TABLES
+      data_tab                = lt_txt
+    EXCEPTIONS
+      file_open_error         = 1
+      file_read_error         = 2
+      no_batch                = 3
+      gui_refuse_filetransfer = 4
+      invalid_type            = 5
+      no_authority            = 6
+      unknown_error           = 7
+      bad_data_format         = 8
+      header_not_allowed      = 9
+      separator_not_allowed   = 10
+      header_too_long         = 11
+      unknown_dp_error        = 12
+      access_denied           = 13
+      dp_out_of_memory        = 14
+      disk_full               = 15
+      dp_timeout              = 16
+      OTHERS                  = 17.
+
+  " Обработка файла
+  IF sy-subrc EQ 0.
+    LOOP AT lt_txt INTO ls_txt.
+      CLEAR ls_imp.
+      " pa_sep - разделитель
+      SPLIT ls_txt-str AT pa_sep INTO ls_imp-anln1
+                                      ls_imp-anln2
+                                      ls_imp-image
+                                      ls_imp-equipmnt_typ
+                                      ls_imp-mark
+                                      ls_imp-model
+                                      lv_trash IN CHARACTER MODE.
+      APPEND ls_imp TO lt_imp.
+    ENDLOOP.
+  ELSE.
+    MESSAGE 'Ошибка открытия файла!' TYPE 'W'.
+    EXIT.
+  ENDIF.
+___________________________________________________________________________________________________________________
+" Проверка символа на латиницу
+IF NOT zva_st_filling-letter CA sy-abcde.
+  MESSAGE e003(zva_txt_valuable_acc).
+ENDIF.
+___________________________________________________________________________________________________________________
+" Double click
+" Класс ZCL_HR_HE
+" 1.Создать, добавить событие: DOUBLE_CLICK Instance Event Public
+" 2. Добавить конструктор: SET HANDLER handle_double_click FOR io_view.(вх. параметр )
+" 3. Метод HANDLE_DOUBLE_CLICK пустой
+" Обьявление, наследование и переопределение метода выбора
+*----------------------------------------------------------------------*
+*       CLASS zcl_double_click DEFINITION
+*----------------------------------------------------------------------*
+CLASS zcl_double_click DEFINITION INHERITING FROM zcl_hr_he.
+
+  PUBLIC SECTION.
+    METHODS:
+      handle_double_click REDEFINITION.
+
+ENDCLASS.                    "zcl_double_click DEFINITION
+*----------------------------------------------------------------------*
+*       CLASS zcl_double_click IMPLEMENTATION
+*----------------------------------------------------------------------*
+CLASS zcl_double_click IMPLEMENTATION.
+
+  METHOD handle_double_click.
+
+    PERFORM double_click
+                USING
+                   e_row
+                   e_column.
+
+  ENDMETHOD.                    "handle_double_click
+
+ENDCLASS.                    "zcl_double_click IMPLEMENTATION
+
+TYPES: t_double_click TYPE REF TO zcl_double_click.
+DATA:  go_double_click TYPE t_double_click.
+
+" Логика нажатия
+FORM double_click USING us_row     TYPE t_row
+                        us_column  TYPE t_col.
+
+  FIELD-SYMBOLS:
+        <lt_sc0100_view>      TYPE STANDARD TABLE.
+
+  DATA:
+        wa_sc0100_view        TYPE t_view.
+
+  " Номер строки
+  IF us_row-index IS INITIAL. RETURN. ENDIF.
+
+  IF go_sc0100_view IS INITIAL. RETURN. ENDIF.
+
+  ASSIGN gr_sc0100_view->* TO <lt_sc0100_view>.
+  IF sy-subrc <> 0. RETURN. ENDIF.
+
+  " Данные нажатой строки
+  READ TABLE <lt_sc0100_view> INTO wa_sc0100_view INDEX us_row-index.
+
+........ Данные ....
+
+ENDFORM.
+
+" Обработка действия
+FIELD-SYMBOLS: <lt_sc0100_view> TYPE t_tab_sc0100_view.
+
+  ASSIGN gr_sc0100_view->* TO <lt_sc0100_view>.
+
+  " Ограничиваем данные на вывод
+  ".....
+
+  gs_layout-zebra    = 'X'.
+  gs_layout-sel_mode = 'A'.
+  gs_layout-cwidth_opt = 'X'.
+
+  IF go_sc0100_view IS INITIAL.
+
+    CREATE OBJECT go_sc0100_view
+      EXPORTING
+        ir_tbl          = gr_sc0100_view
+        iv_tblname      = 'ZVA_ST_DOCUMENTS_SC100_VIEW'
+        iv_custcontname = 'CUST_CONTAINER'
+        iv_repid        = sy-repid
+        iv_dynnr        = sy-dynnr
+        iv_handle       = 'H100'
+        is_layout       = gs_layout.
+
+  ELSE.
+
+    go_sc0100_view->refresh( ).
+    CALL METHOD cl_gui_cfw=>flush.
+
+  ENDIF.
+
+  " Double click
+  IF go_sc0100_view  IS NOT INITIAL AND
+     go_double_click IS INITIAL.
+
+    CREATE OBJECT go_double_click
+      EXPORTING
+        io_view = go_sc0100_view.
+
+  ENDIF.
+___________________________________________________________________________________________________________________
+" По роли найти пользователей
+CALL FUNCTION 'PRGN_1001_READ_USER_ASSIGNMENT'
+EXPORTING
+  activity_group    = uv_role
+TABLES
+  i_agr_users       = lt_users
+EXCEPTIONS
+  no_data_available = 1
+  OTHERS            = 2.
+___________________________________________________________________________________________________________________
+" Обработка выходов отдельно
+" 1. GUI-статус->кнопка->тип функции Е(Команда выхода)
+" 2. Вызов модуля в PAI со специальной командой
+MODULE user_exit_0110 AT EXIT-COMMAND.
+MODULE user_exit_0110 INPUT.
+  " Очистка данных
+  " Выход из окна
+  SET SCREEN 0.
+  LEAVE SCREEN.
+ENDMODULE.
+___________________________________________________________________________________________________________________
+" Динамический вызов метода класса
+" Метод получения текста сообщения из таблицы
+" Переменные
+CT_MESSAGE	TYPE ZVA_TT_MESSAGE	
+value( CV_EMAIL_TEXT )	TYPE ZVA_TP_EMAIL_TEXT
+" Метод
+METHOD get_email_text_with_data.
+
+  DATA:
+    lv_email_text  TYPE zva_tp_email_text,
+    lt_line        TYPE TABLE OF string,
+    lv_method_name TYPE zva_tp_method,
+    lv_mod         TYPE p DECIMALS 1.
+
+  " Получаем текст сообщения с переменными
+  lv_email_text = get_email_text( ).
+  IF lv_email_text IS INITIAL.
+    " Ошибка: Не найден текст сообщения
+    CALL FUNCTION 'ZVA_FN_ADD_MESSAGE'
+      EXPORTING
+        iv_msgty   = 'E'
+        iv_msgno   = '055'
+      CHANGING
+        ct_message = ct_message.
+    RETURN.
+  ENDIF.
+
+  " Разбиваем строки по символу
+  SPLIT lv_email_text AT '&' INTO TABLE lt_line.
+  CLEAR lv_email_text.
+
+  LOOP AT lt_line ASSIGNING FIELD-SYMBOL(<lf_line>).
+
+    " Переменная всегда на чётной позиции в строке
+    lv_mod = sy-tabix MOD 2.
+
+    IF lv_mod = 0.
+
+      lv_method_name = <lf_line>.
+      " Переводим в верхний регистр
+      TRANSLATE lv_method_name TO UPPER CASE.
+
+      CALL METHOD call_method
+        EXPORTING
+          iv_method         = lv_method_name " Метод
+        IMPORTING
+          ev_variable_value = <lf_line>      " Значение переменной
+        CHANGING
+          ct_message        = ct_message.    " Тип таблицы для ZVA_MESSAGE
+
+      " Добавляем пробел на начало
+      <lf_line> = | { <lf_line> }|.
+
+    ENDIF.
+
+    " Обьединяем строку
+    lv_email_text = |{ lv_email_text }{ <lf_line> }|.
+
+  ENDLOOP.
+
+  cv_email_text = lv_email_text.
+
+ENDMETHOD.
+
+" Метод динамический
+" Входные/выходные параметры
+IV_METHOD	   TYPE ZVA_TP_METHOD
+EV_VARIABLE_VALUE  TYPE ZVA_TP_VARIABLE_VALUE
+CT_MESSAGE	   TYPE ZVA_TT_MESSAGE
+" Метод
+  CLEAR ev_variable_value.
+
+  TRY.
+      " Вызываем метод по имени переменной, например GET_ID
+      CALL METHOD (iv_method)
+        IMPORTING
+          ev_variable_value = ev_variable_value
+        CHANGING
+          ct_message        = ct_message.
+
+    CATCH cx_sy_dyn_call_illegal_method.
+
+      "Ошибка: метод получения переменной & не настроен
+      CALL FUNCTION 'ZVA_FN_ADD_MESSAGE'
+        EXPORTING
+          iv_msgty   = 'E'
+          iv_msgno   = '053'
+          iv_msgv1   = iv_method
+        CHANGING
+          ct_message = ct_message.
+
+    CATCH cx_root.
+
+      "Ошибка: при вызове метода &
+      CALL FUNCTION 'ZVA_FN_ADD_MESSAGE'
+        EXPORTING
+          iv_msgty   = 'E'
+          iv_msgno   = '053'
+          iv_msgv1   = iv_method
+        CHANGING
+          ct_message = ct_message.
+
+  ENDTRY.
+" Метод переменной
+" Входные/выходные параметры
+IV_METHOD	TYPE ZVA_TP_METHOD
+EV_VARIABLE_VALUE	TYPE ZVA_TP_VARIABLE_VALUE
+CT_MESSAGE	TYPE ZVA_TT_MESSAGE
+" Метод
+METHOD get_id.
+
+  ev_variable_value = av_id.
+
+ENDMETHOD.
+___________________________________________________________________________________________________________________
+" Сохранение, удаление и чтение файлов в кластерной таблице
+" Таблицы
+ZVA_TB_DOC_ATTR " Атрибуты сканкопий
+MANDT	        MANDT	        CLNT	3	0	Мандант
+DOCNUM	        ZVA_TP_SCAN_ID	CHAR	15	0	ID сканкопии
+BIN_FILESIZE	ZM_BIN_FILESIZE	INT4	10	0	Размер файла
+FILETYPE	ZM_FILETYPE	CHAR	10	0	Тип файла
+FILENAME	ZM_FILENAME	CHAR	128	0	Имя файла
+
+ZVA_TB_DOC_STORE " Хранилище сканкопий
+MANDT	MANDT	        CLNT	3	0	Мандант
+RELID	INDX_RELID	CHAR	2	0	Область в таблице данных IMPORT/EXPORT
+SRTFD	ZVA_TP_SCAN_ID	CHAR	15	0	ID сканкопии
+SRTF2	INDX_SRTF2	INT4	10	0	Счетчик след. записей в таблицах данных ЭКСПОРТА/ИМПОРТА
+CLUSTR	INDX_CLSTR	INT2	5	0	Поле длины для данных пользователя в таблицах эксп./имп.
+CLUSTD	LRAW1000	LRAW	1000	0	Кластер даних, максимальна довжина 1000
+________________________________________________________________________________
+" Функциональные модули
+" Загрузка документов
+FUNCTION zva_fn_load_scan.
+*"----------------------------------------------------------------------
+*"*"Локальный интерфейс:
+*"  IMPORTING
+*"     REFERENCE(IV_SCAN_ID) TYPE  ZVA_TP_SCAN_ID
+*"  EXPORTING
+*"     REFERENCE(EV_SUBRC) TYPE  SY-SUBRC
+*"----------------------------------------------------------------------
+
+  DATA: ls_file_attr      TYPE zva_tb_doc_attr,
+        lv_rc             TYPE i,
+        lt_filetable      TYPE filetable,
+        ls_filetable      LIKE LINE OF lt_filetable,
+        lv_filelength     TYPE i,
+        lv_filename       TYPE string,
+        lv_sapworkdir     TYPE string,
+        lv_file_separator TYPE char1,
+        lt_data_tab       TYPE STANDARD TABLE OF bapiconten,
+        lv_extension      TYPE string,
+        lv_filename_alt   TYPE string.
+
+  CLEAR ev_subrc.
+
+  CHECK iv_scan_id IS NOT INITIAL.
+
+  " Выбираем файл
+  CALL METHOD cl_gui_frontend_services=>file_open_dialog
+    EXPORTING
+      window_title            = 'Выберите файл'
+      multiselection          = abap_false
+    CHANGING
+      file_table              = lt_filetable
+      rc                      = lv_rc
+    EXCEPTIONS
+      file_open_dialog_failed = 1
+      cntl_error              = 2
+      error_no_gui            = 3
+      not_supported_by_gui    = 4
+      OTHERS                  = 5.
+  IF sy-subrc <> 0 OR lt_filetable[] IS INITIAL.
+    ev_subrc = 1.
+    " Действие отменено
+    MESSAGE s016(zva_txt_valuable_acc) DISPLAY LIKE 'E'.
+    RETURN.
+  ENDIF.
+
+  " Складываем данные во внутреннюю таблицу
+  READ TABLE lt_filetable INTO ls_filetable INDEX 1.
+  CHECK sy-subrc IS INITIAL.
+  lv_filename  = ls_filetable-filename.
+
+  CALL METHOD cl_gui_frontend_services=>gui_upload
+    EXPORTING
+      filename                = lv_filename
+      filetype                = 'BIN'
+    IMPORTING
+      filelength              = lv_filelength
+    CHANGING
+      data_tab                = lt_data_tab
+    EXCEPTIONS
+      file_open_error         = 1
+      file_read_error         = 2
+      no_batch                = 3
+      gui_refuse_filetransfer = 4
+      invalid_type            = 5
+      no_authority            = 6
+      unknown_error           = 7
+      bad_data_format         = 8
+      header_not_allowed      = 9
+      separator_not_allowed   = 10
+      header_too_long         = 11
+      unknown_dp_error        = 12
+      access_denied           = 13
+      dp_out_of_memory        = 14
+      disk_full               = 15
+      dp_timeout              = 16
+      not_supported_by_gui    = 17
+      error_no_gui            = 18
+      OTHERS                  = 19.
+  IF sy-subrc <> 0.
+    ev_subrc = 1.
+    " Ошибка загрузки сканкопии
+    MESSAGE s017(zva_txt_valuable_acc) DISPLAY LIKE 'E'.
+    RETURN.
+  ENDIF.
+
+  " Опеределяет расширение файла
+  CLEAR: lv_filename,
+         lv_extension,
+         lv_filename_alt.
+  FIND REGEX      '(.*)(\.[^.]*)$|(.*)'
+       IN         ls_filetable-filename
+       SUBMATCHES lv_filename
+                  lv_extension
+                  lv_filename_alt.
+
+  " Заполняем структуру кластерной таблицы атрибутов
+  ls_file_attr-docnum = iv_scan_id.
+  ls_file_attr-bin_filesize = lv_filelength.
+  ls_file_attr-filetype     = lv_extension.
+  IF lv_filename IS NOT INITIAL.
+    ls_file_attr-filename = lv_filename.
+  ELSE.
+    ls_file_attr-filename = lv_filename_alt.
+  ENDIF.
+
+  " Сохраняем сканкопию в таблицу
+  EXPORT lt_data_tab TO DATABASE zva_tb_doc_store(va) ID iv_scan_id. " (va) Это, типа, пространство имен. Эту же таблицу можно использовать в других программах, назначив другое сочетание символов и ID-шники можно опять начинать с 1. 
+  IF sy-subrc NE 0.
+    ev_subrc = 1.
+    " Ошибка БД при работе с файлом
+    MESSAGE s014(zva_txt_valuable_acc) DISPLAY LIKE 'E'.
+    ROLLBACK WORK.
+    RETURN.
+  ENDIF.
+  " Сохраняем атрибуты в таблицу
+  MODIFY zva_tb_doc_attr FROM ls_file_attr.
+  IF sy-subrc NE 0.
+    ev_subrc = 1.
+    " Ошибка БД при работе с файлом
+    MESSAGE s014(zva_txt_valuable_acc) DISPLAY LIKE 'E'.
+    ROLLBACK WORK.
+    RETURN.
+  ENDIF.
+
+  COMMIT WORK AND WAIT.
+  " Успешно сохранено
+  MESSAGE s015(zva_txt_valuable_acc).
+
+ENDFUNCTION.
+________________________________________________________________________
+" Открыть документ
+FUNCTION zva_fn_open_scan.
+*"----------------------------------------------------------------------
+*"*"Локальный интерфейс:
+*"  IMPORTING
+*"     REFERENCE(IV_SCAN_ID) TYPE  ZVA_TP_SCAN_ID
+*"----------------------------------------------------------------------
+
+  DATA: ls_file_attr      TYPE zva_tb_doc_attr,
+        lv_rc             TYPE i,
+        lv_filelength     TYPE i,
+        lv_filename       TYPE string,
+        lv_sapworkdir     TYPE string,
+        lv_file_separator TYPE char1,
+        lt_data_tab       TYPE STANDARD TABLE OF bapiconten.
+
+  CHECK iv_scan_id IS NOT INITIAL.
+
+  " Данные из хранилища
+  IMPORT lt_data_tab FROM DATABASE zva_tb_doc_store(va) ID iv_scan_id. " (va) Это, типа, пространство имен. Эту же таблицу можно использовать в других программах, назначив другое сочетание символов и ID-шники можно опять начинать с 1. 
+  IF sy-subrc <> 0.
+    " Cканкопия не найдена
+    MESSAGE s018(zva_txt_valuable_acc) DISPLAY LIKE 'E'.
+    RETURN.
+  ENDIF.
+
+  " Данные атрибутов
+  SELECT SINGLE *
+    FROM zva_tb_doc_attr
+    INTO ls_file_attr
+    WHERE docnum = iv_scan_id.
+  IF sy-subrc <> 0.
+    " Cканкопия не найдена
+    MESSAGE s018(zva_txt_valuable_acc) DISPLAY LIKE 'E'.
+    RETURN.
+  ENDIF.
+
+  " Находим директорию где лежит файл
+  CALL METHOD cl_gui_frontend_services=>get_sapgui_workdir
+    CHANGING
+      sapworkdir = lv_sapworkdir.
+  " Находим разделитель
+  CALL METHOD cl_gui_frontend_services=>get_file_separator
+    CHANGING
+      file_separator = lv_file_separator.
+  CONCATENATE lv_sapworkdir
+              lv_file_separator
+              iv_scan_id
+              ls_file_attr-filetype
+              INTO lv_filename.
+
+  " Загружаем файл
+  CALL METHOD cl_gui_frontend_services=>gui_download
+    EXPORTING
+      bin_filesize            = ls_file_attr-bin_filesize
+      filename                = lv_filename
+      filetype                = 'BIN'
+    CHANGING
+      data_tab                = lt_data_tab
+    EXCEPTIONS
+      file_write_error        = 1
+      no_batch                = 2
+      gui_refuse_filetransfer = 3
+      invalid_type            = 4
+      no_authority            = 5
+      unknown_error           = 6
+      header_not_allowed      = 7
+      separator_not_allowed   = 8
+      filesize_not_allowed    = 9
+      header_too_long         = 10
+      dp_error_create         = 11
+      dp_error_send           = 12
+      dp_error_write          = 13
+      unknown_dp_error        = 14
+      access_denied           = 15
+      dp_out_of_memory        = 16
+      disk_full               = 17
+      dp_timeout              = 18
+      file_not_found          = 19
+      dataprovider_exception  = 20
+      control_flush_error     = 21
+      not_supported_by_gui    = 22
+      error_no_gui            = 23
+      OTHERS                  = 24.
+  IF sy-subrc <> 0.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    RETURN.
+  ENDIF.
+
+  " Обновление экрана
+  CALL METHOD cl_gui_cfw=>flush.
+  WAIT UP TO 1 SECONDS.
+  " Открываем файл в соответствующей программе
+  CALL METHOD cl_gui_frontend_services=>execute
+    EXPORTING
+      document               = lv_filename
+      default_directory      = lv_sapworkdir
+      synchronous            = 'X'
+    EXCEPTIONS
+      cntl_error             = 1
+      error_no_gui           = 2
+      bad_parameter          = 3
+      file_not_found         = 4
+      path_not_found         = 5
+      file_extension_unknown = 6
+      error_execute_failed   = 7
+      synchronous_failed     = 8
+      not_supported_by_gui   = 9
+      OTHERS                 = 10.
+  IF sy-subrc <> 0.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    RETURN.
+  ENDIF.
+  CALL METHOD cl_gui_cfw=>flush.
+
+ENDFUNCTION.
+________________________________________________________________________
+" Удалить документ
+FUNCTION zva_fn_delete_scan.
+*"----------------------------------------------------------------------
+*"*"Локальный интерфейс:
+*"  IMPORTING
+*"     REFERENCE(IV_SCAN_ID) TYPE  ZVA_TP_SCAN_ID
+*"  EXPORTING
+*"     REFERENCE(EV_SUBRC) TYPE  SY-SUBRC
+*"----------------------------------------------------------------------
+
+  " Удаление из хранилища
+  DELETE FROM DATABASE zva_tb_doc_store(va) ID iv_scan_id.
+  IF sy-subrc <> 0.
+    ev_subrc = 1.
+    " Ошибка БД при работе с файлом
+    MESSAGE s014(zva_txt_valuable_acc) DISPLAY LIKE 'E'.
+    ROLLBACK WORK.
+    RETURN.
+  ENDIF.
+  " Удаление из атрибутов
+  DELETE FROM zva_tb_doc_attr WHERE docnum EQ iv_scan_id.
+  IF sy-subrc <> 0.
+    ev_subrc = 1.
+    " Ошибка БД при работе с файлом
+    MESSAGE s014(zva_txt_valuable_acc) DISPLAY LIKE 'E'.
+    ROLLBACK WORK.
+    RETURN.
+  ENDIF.
+
+  COMMIT WORK AND WAIT.
+  " Сканкопия удалена
+  MESSAGE s019(zva_txt_valuable_acc).
+
+ENDFUNCTION.
+___________________________________________________________________________________________________________________
+" Hotspot
+go_hotspot_click TYPE REF TO zcl_hotspot_click.
+" Установить флаг
+go_sc0701_view->m_set_hotspot( iv_fieldname = 'SCAN_ID' ).
+" Обновить отображение
+go_sc0701_view->m_first_display( ).
+" Событие нажатия
+IF go_sc0701_view  IS NOT INITIAL AND
+   go_hotspot_click IS INITIAL.
+    CLEAR go_hotspot_click.
+    CREATE OBJECT go_hotspot_click
+      EXPORTING
+        io_view = go_sc0701_view.
+ENDIF.
+
+
+IV_FIELDNAME	TYPE LVC_FNAME
+  METHOD m_set_hotspot.
+
+    FIELD-SYMBOLS: <lf_dieldcat> TYPE lvc_s_fcat.
+
+    READ TABLE a_fieldcat ASSIGNING <lf_dieldcat> WITH KEY fieldname = iv_fieldname.
+    IF sy-subrc = 0.
+      <lf_dieldcat>-hotspot = 'X'.
+    ENDIF.
+
+    UNASSIGN <lf_dieldcat>.
+
+  ENDMETHOD.
+
+value( PI_SAVE )	TYPE CHAR01  DEFAULT 'U'
+METHOD m_first_display .
+  FIELD-SYMBOLS:
+    <ztbl> TYPE ANY.
+
+  ASSIGN a_tbl->* TO <ztbl>.
+
+  CALL METHOD a_grid->set_table_for_first_display
+    EXPORTING
+      is_layout            = a_layout
+      i_save               = pi_save
+      is_variant           = a_vari
+      it_toolbar_excluding = a_exclude
+    CHANGING
+      it_sort              = a_sort
+      it_fieldcatalog      = a_fieldcat
+      it_outtab            = <ztbl>.
+
+  CALL METHOD a_grid->set_toolbar_interactive.
+ENDMETHOD.
+
+*----------------------------------------------------------------------*
+*       CLASS zcl_hotspot_click DEFINITION
+*----------------------------------------------------------------------*
+CLASS zcl_hotspot_click DEFINITION INHERITING FROM zcl_va_he.
+  PUBLIC SECTION.
+    METHODS:
+      handle_hotspot_click REDEFINITION.
+ENDCLASS.                    "zcl_hotspot_click DEFINITION
+*----------------------------------------------------------------------*
+*       CLASS zcl_hotspot_click IMPLEMENTATION
+*----------------------------------------------------------------------*
+CLASS zcl_hotspot_click IMPLEMENTATION.
+  METHOD handle_hotspot_click.
+    PERFORM process_hotspot USING e_row_id
+                                  e_column_id
+                                  es_row_no.
+  ENDMETHOD.                    "hotspot_click
+ENDCLASS.                    "zcl_hotspot_click IMPLEMENTATION
+
+CLASS ZCL_VA_HE
+
+IO_VIEW	TYPE REF TO ZCL_HR_VIEW
+METHOD CONSTRUCTOR .
+
+  SET HANDLER handle_hotspot_click FOR io_view.
+
+ENDMETHOD.
+
+value( E_ROW_ID )	TYPE LVC_S_ROW
+value( E_COLUMN_ID )	TYPE LVC_S_COL
+value( ES_ROW_NO )	TYPE LVC_S_ROID
+METHOD HANDLE_HOTSPOT_CLICK .
+ENDMETHOD.
+
+" Событие
+HOTSPOT_CLICK	Instance Event	Public	HotspotClick
+" Параметры
+E_ROW_ID	Type	LVC_S_ROW
+E_COLUMN_ID	Type	LVC_S_COL
+ES_ROW_NO	Type	LVC_S_ROID
+
+" В классе отображение который передаем в этот класс в конструкторе установить 
+SET HANDLER handle_hotspot_click FOR a_grid.
+" Добавить метод
+HANDLE_HOTSPOT_CLICK	Instance Method	Protected		Handle hotspot click
+
+value( E_ROW_ID )	TYPE LVC_S_ROW OPTIONAL
+value( E_COLUMN_ID )	TYPE LVC_S_COL OPTIONAL
+value( ES_ROW_NO )	TYPE LVC_S_ROID OPTIONAL
+METHOD HANDLE_HOTSPOT_CLICK .
+
+  RAISE EVENT hotspot_click
+    EXPORTING
+      e_row_id    = e_row_id
+      e_column_id = e_column_id
+      es_row_no   = es_row_no.
+
+ENDMETHOD.
+___________________________________________________________________________________________________________________
+" TOOLBAR (Классы ниже описаны в блоке про hotspot)
+DATA: gc_container_toolbar TYPE REF TO cl_gui_custom_container,
+      gc_toolbar_main      TYPE REF TO cl_gui_toolbar,
+      lt_events   TYPE cntl_simple_events,
+      ls_event    TYPE cntl_simple_event,
+      gc_moladr            TYPE REF TO cl_ctmenu,
+      gc_print             TYPE REF TO cl_ctmenu,
+      gc_info              TYPE REF TO cl_ctmenu.
+
+IF NOT event_receiver IS BOUND.
+    CREATE OBJECT event_receiver.
+  ENDIF.
+
+IF gc_container_toolbar IS NOT BOUND.
+    CREATE OBJECT gc_container_toolbar
+      EXPORTING
+        container_name              = 'CONTAINER_TOOLBAR'
+      EXCEPTIONS
+        cntl_error                  = 1
+        cntl_system_error           = 2
+        create_error                = 3
+        lifetime_error              = 4
+        lifetime_dynpro_dynpro_link = 5
+        OTHERS                      = 6.
+    IF sy-subrc <> 0.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ELSE.
+      CREATE OBJECT gc_toolbar_main
+        EXPORTING
+          parent             = gc_container_toolbar
+        EXCEPTIONS
+          cntl_install_error = 1
+          cntl_error         = 2
+          cntb_wrong_version = 3
+          OTHERS             = 4.
+      IF sy-subrc <> 0.
+        MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+      ELSE.
+        CLEAR: lt_events, ls_event.
+        ls_event-eventid = cl_gui_toolbar=>m_id_function_selected.
+        APPEND ls_event TO lt_events.
+        CALL METHOD gc_toolbar_main->set_registered_events
+          EXPORTING
+            events                    = lt_events
+          EXCEPTIONS
+            cntl_error                = 1
+            cntl_system_error         = 2
+            illegal_event_combination = 3
+            OTHERS                    = 4.
+
+        SET HANDLER event_receiver->function_selected FOR gc_toolbar_main.
+
+        IF sy-tcode EQ 'ZFIAA_IWP_PUR'.
+          "меню ИРМа закупщика
+          "меню "МОЛ, Адрес"
+          CREATE OBJECT gc_moladr.
+          CALL METHOD gc_moladr->add_function
+            EXPORTING
+              fcode = 'ZMOLA_1_1'
+              text  = 'Изм.МОЛ, Адреса'.
+          CALL METHOD gc_moladr->add_function
+            EXPORTING
+              fcode = 'ZMOLA_1_2'
+              text  = 'Журнал Изм.МОЛ, Адреса'.
+          CALL METHOD gc_moladr->add_function
+            EXPORTING
+              fcode = 'ZMOLA_1_3'
+              text  = 'Изм. серийных/заводских номеров'.
+          CALL METHOD gc_moladr->add_function
+            EXPORTING
+              fcode = 'ZMOLA_1_4'
+              text  = 'Изм. данных, зависимых от времени'.
+          CALL METHOD gc_moladr->add_function
+            EXPORTING
+              fcode = 'ZMOLA_1_5'
+              text  = 'Загрузка типов оборудования'.
+
+          CALL METHOD gc_toolbar_main->add_button
+            EXPORTING
+              fcode            = 'ZMOLADR'
+              icon             = icon_real_estate_object
+              butn_type        = 2
+              text             = '  Груп.Изм.Карточек АА'
+              quickinfo        = 'Груп.Изм.'
+            EXCEPTIONS
+              cntl_error       = 1
+              cntb_btype_error = 2
+              cntb_error_fcode = 3
+              OTHERS           = 4.
+          IF sy-subrc <> 0.
+            MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+          ENDIF.
+
+          CALL METHOD gc_toolbar_main->set_static_ctxmenu
+            EXPORTING
+              fcode                = 'ZMOLADR'
+              ctxmenu              = gc_moladr
+            EXCEPTIONS
+              ctmenu_error         = 1
+              cntl_error           = 2
+              cntb_error_parameter = 3
+              OTHERS               = 4.
+
+          "меню "Печать документов"
+          CREATE OBJECT gc_print.
+          CALL METHOD gc_print->add_function
+            EXPORTING
+              fcode = 'ZPRINT_1_1'
+              text  = 'Печать ОЗ-1, Акт перемещения'.
+          CALL METHOD gc_print->add_function
+            EXPORTING
+              fcode = 'ZPRINT_1_2'
+              text  = 'Печать ОЗ-3, НА-3'.
+          CALL METHOD gc_print->add_function
+            EXPORTING
+              fcode = 'ZPRINT_1_3'
+              text  = 'Печать НА-1'.
+          CALL METHOD gc_print->add_function
+            EXPORTING
+              fcode = 'ZPRINT_1_4'
+              text  = 'Печать АКТа ТО'.
+          CALL METHOD gc_print->add_function
+            EXPORTING
+              fcode = 'ZPRINT_1_5'
+              text  = 'Печать АКТа уничтожения ОС/ПО'.
+          CALL METHOD gc_print->add_function
+            EXPORTING
+              fcode = 'ZPRINT_1_6'
+              text  = 'Печать инвентарной карточки ОЗ-6'.
+          CALL METHOD gc_print->add_function
+            EXPORTING
+              fcode = 'ZPRINT_1_7'
+              text  = 'Печать инвентарной карточки НА-2'.
+
+          CALL METHOD gc_toolbar_main->add_button
+            EXPORTING
+              fcode            = 'ZPRINT'
+              icon             = icon_print
+              butn_type        = 2
+              text             = '  Печать документов'
+              quickinfo        = 'Печать'
+            EXCEPTIONS
+              cntl_error       = 1
+              cntb_btype_error = 2
+              cntb_error_fcode = 3
+              OTHERS           = 4.
+          IF sy-subrc <> 0.
+            MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+          ENDIF.
+
+          CALL METHOD gc_toolbar_main->set_static_ctxmenu
+            EXPORTING
+              fcode                = 'ZPRINT'
+              ctxmenu              = gc_print
+            EXCEPTIONS
+              ctmenu_error         = 1
+              cntl_error           = 2
+              cntb_error_parameter = 3
+              OTHERS               = 4.
+
+          "меню "Информация"
+          CREATE OBJECT gc_info.
+          CALL METHOD gc_info->add_function
+            EXPORTING
+              fcode = 'ZINFO_1_1'
+              text  = 'История движения'.
+          CALL METHOD gc_info->add_function
+            EXPORTING
+              fcode = 'ZINFO_1_2'
+              text  = 'История амортизации'.
+
+          CALL METHOD gc_toolbar_main->add_button
+            EXPORTING
+              fcode            = 'ZINFO'
+              icon             = icon_history
+              butn_type        = 2
+              text             = '  Информация'
+              quickinfo        = 'Информация'
+            EXCEPTIONS
+              cntl_error       = 1
+              cntb_btype_error = 2
+              cntb_error_fcode = 3
+              OTHERS           = 4.
+          IF sy-subrc <> 0.
+            MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+          ENDIF.
+
+          CALL METHOD gc_toolbar_main->set_static_ctxmenu
+            EXPORTING
+              fcode                = 'ZINFO'
+              ctxmenu              = gc_info
+            EXCEPTIONS
+              ctmenu_error         = 1
+              cntl_error           = 2
+              cntb_error_parameter = 3
+              OTHERS               = 4.
+ENDIF.
+
+*&---------------------------------------------------------------------*
+*&      Form  PROCESS_FUNCTION
+*&---------------------------------------------------------------------*
+FORM process_function USING p_fcode TYPE ui_func.
+
+  DATA: lv_transvar        TYPE transvar,
+        lv_bwasl           TYPE bwasl,
+        lv_anln1           TYPE anln1,
+        lv_anln2           TYPE anln2,
+        lv_title(50),
+        lv_code_add(2),
+        ls_zaa_account_sub TYPE zaa_account_sub,
+        lv_ktogr           TYPE anka-ktogr,
+        lv_gkont           TYPE raifp2-gkont,
+        lv_belnr           TYPE belnr_d,
+        lv_gjahr           TYPE gjahr,
+        lv_variant         LIKE rsvar-variant.
+
+  RANGES: ra_anln1 FOR anla-anln1 OCCURS 1,
+          ra_anln2 FOR anla-anln2 OCCURS 1.
+
+  DEFINE export_title.
+    lv_title = &1.
+    export lv_title to memory id 'ZAATITLE'.
+  END-OF-DEFINITION.
+
+  SET PARAMETER ID 'BUK' FIELD pa_bukrs.
+  SET PARAMETER ID 'AN1' FIELD lv_anln1.
+  SET PARAMETER ID 'AN2' FIELD lv_anln2.
+
+  CLEAR: lv_belnr, lv_gjahr.
+  SET PARAMETER ID 'BLN' FIELD lv_belnr.
+  SET PARAMETER ID 'GJR' FIELD lv_gjahr.
+
+  CASE p_fcode.
+    WHEN 'ZPROC_1_1'.
+      "Перв.оприходование (в т.ч. НалУч)
+      lv_transvar = 'Y4PP'.
+      CALL METHOD gc_grid_main->get_selected_rows
+        IMPORTING
+          et_index_rows = gt_index_rows
+          et_row_no     = gt_row_no.
+      IF lines( gt_row_no ) NE 1.
+        MESSAGE s202(zfi_aa).
+      ELSE.
+        READ TABLE gt_row_no INTO gs_row_no WITH KEY sub_row_id = 0.
+        IF sy-subrc EQ 0.
+          READ TABLE gt_data_scr INTO gs_data_scr INDEX gs_row_no-row_id.
+          IF sy-subrc EQ 0.
+            export_title 'Перв.оприходование (в т.ч. НалУч)'.
+            SUBMIT zfiaa_abumn VIA SELECTION-SCREEN
+            WITH ip_bukrs EQ pa_bukrs
+            WITH ip_anln1 EQ gs_data_scr-anln1
+            WITH ip_anln2 EQ gs_data_scr-anln2
+            WITH ip_trava EQ lv_transvar
+            AND RETURN.
+            "сообщение
+            PERFORM send_mess_post.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    WHEN 'ZPROC_1_2'.
+      "Перв.оприходование (без НалУч)
+      lv_transvar = 'Y4PT'.
+      CALL METHOD gc_grid_main->get_selected_rows
+        IMPORTING
+          et_index_rows = gt_index_rows
+          et_row_no     = gt_row_no.
+      IF lines( gt_row_no ) NE 1.
+        MESSAGE s202(zfi_aa).
+      ELSE.
+        READ TABLE gt_row_no INTO gs_row_no WITH KEY sub_row_id = 0.
+        IF sy-subrc EQ 0.
+          READ TABLE gt_data_scr INTO gs_data_scr INDEX gs_row_no-row_id.
+          IF sy-subrc EQ 0.
+            export_title 'Перв.оприходование (без НалУч)'.
+            SUBMIT zfiaa_abumn VIA SELECTION-SCREEN
+            WITH ip_bukrs EQ pa_bukrs
+            WITH ip_anln1 EQ gs_data_scr-anln1
+            WITH ip_anln2 EQ gs_data_scr-anln2
+            WITH ip_trava EQ lv_transvar
+            AND RETURN.
+            "сообщение
+            PERFORM send_mess_post.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    WHEN 'ZPROC_1_3'.
+      "Расчет с НКС: ОпредПравилаРасчета
+      CALL METHOD gc_grid_main->get_selected_rows
+        IMPORTING
+          et_index_rows = gt_index_rows
+          et_row_no     = gt_row_no.
+      IF lines( gt_row_no ) NE 1.
+        MESSAGE s202(zfi_aa).
+      ELSE.
+        READ TABLE gt_row_no INTO gs_row_no WITH KEY sub_row_id = 0.
+        IF sy-subrc EQ 0.
+          READ TABLE gt_data_scr INTO gs_data_scr INDEX gs_row_no-row_id.
+          IF sy-subrc EQ 0.
+            export_title 'Расчет с НКС: ОпредПравилаРасчета'.
+            SUBMIT zfiaa_aiab
+            WITH ip_bukrs EQ pa_bukrs
+            WITH ip_anln1 EQ gs_data_scr-anln1
+            WITH ip_anln2 EQ gs_data_scr-anln2
+            AND RETURN.
+            "сообщение
+            PERFORM send_mess_post.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    WHEN 'ZPROC_1_4'.
+      "Расчет с НКС: Рассчет
+      CALL METHOD gc_grid_main->get_selected_rows
+        IMPORTING
+          et_index_rows = gt_index_rows
+          et_row_no     = gt_row_no.
+      IF lines( gt_row_no ) NE 1.
+        MESSAGE s202(zfi_aa).
+      ELSE.
+        READ TABLE gt_row_no INTO gs_row_no WITH KEY sub_row_id = 0.
+        IF sy-subrc EQ 0.
+          READ TABLE gt_data_scr INTO gs_data_scr INDEX gs_row_no-row_id.
+          IF sy-subrc EQ 0.
+            export_title 'Расчет с НКС: Рассчет'.
+            SUBMIT zfiaa_aibu VIA SELECTION-SCREEN
+            WITH ip_bukrs EQ pa_bukrs
+            WITH ip_anln1 EQ gs_data_scr-anln1
+            WITH ip_anln2 EQ gs_data_scr-anln2
+            AND RETURN.
+            "сообщение
+            PERFORM send_mess_post.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    WHEN 'ZPROC_1_5'.
+      "Оприх. излишков при инвентаризации
+      CALL METHOD gc_grid_main->get_selected_rows
+        IMPORTING
+          et_index_rows = gt_index_rows
+          et_row_no     = gt_row_no.
+      IF lines( gt_row_no ) LT 1.
+        MESSAGE 'Выделите хотя бы одну строку' TYPE 'S'.
+      ELSE.
+        LOOP AT gt_row_no INTO gs_row_no WHERE sub_row_id = 0.
+          READ TABLE gt_data_scr INTO gs_data_scr INDEX gs_row_no-row_id.
+          "исключение закрытых, удаленных, блокированных, временно блокированных
+          IF gs_data_scr-deakt   GT '19000101'
+          OR gs_data_scr-xloev   IS NOT INITIAL
+          OR gs_data_scr-xspeb   IS NOT INITIAL
+          OR gs_data_scr-zzblock IS NOT INITIAL.
+            CONTINUE.
+          ENDIF.
+          ra_anln1-sign = 'I'.
+          ra_anln1-option = 'EQ'.
+          ra_anln1-low = gs_data_scr-anln1.
+          APPEND ra_anln1.
+          ra_anln2-sign = 'I'.
+          ra_anln2-option = 'EQ'.
+          ra_anln2-low = gs_data_scr-anln2.
+          APPEND ra_anln2.
+        ENDLOOP.
+        IF sy-subrc EQ 0.
+          "определяем контрольный счёт
+          CLEAR: lv_gkont, lv_ktogr, ls_zaa_account_sub.
+          SELECT SINGLE ktogr INTO lv_ktogr FROM anka WHERE anlkl EQ gs_data_scr-ktogr.
+          IF sy-subrc EQ 0.
+            SELECT SINGLE * FROM zaa_account_sub INTO ls_zaa_account_sub WHERE bwasl EQ 'YI1'
+                                                                           AND ktogr EQ lv_ktogr
+                                                                           AND afabe EQ '01'.
+            IF sy-subrc EQ 0.
+              lv_gkont = ls_zaa_account_sub-ktansg.
+            ENDIF.
+          ENDIF.
+          CLEAR: lv_belnr, lv_gjahr.
+          SET PARAMETER ID 'BLN' FIELD lv_belnr.
+          SET PARAMETER ID 'GJR' FIELD lv_gjahr.
+          "вызываем отчёт
+          export_title 'Оприходование излишков при инвентаризации'.
+          SUBMIT zfiaa_abzon_m VIA SELECTION-SCREEN
+          WITH ip_bukrs EQ pa_bukrs
+          WITH is_anln1 IN ra_anln1
+          WITH is_anln2 IN ra_anln2
+          WITH ip_bwasl EQ 'YI1'
+          WITH ip_gkont EQ lv_gkont
+          AND RETURN.
+          "сообщение
+          PERFORM send_mess_post.
+        ENDIF.
+      ENDIF.
+
+    WHEN 'ZPROC_1_6'.
+      "ПостНаНКС СобственРазработки НМА
+      CALL METHOD gc_grid_main->get_selected_rows
+        IMPORTING
+          et_index_rows = gt_index_rows
+          et_row_no     = gt_row_no.
+      IF lines( gt_row_no ) LT 1.
+        MESSAGE 'Выделите хотя бы одну строку' TYPE 'S'.
+      ELSE.
+        LOOP AT gt_row_no INTO gs_row_no WHERE sub_row_id = 0.
+          READ TABLE gt_data_scr INTO gs_data_scr INDEX gs_row_no-row_id.
+          "исключение закрытых, удаленных, блокированных, временно блокированных
+          IF gs_data_scr-deakt   GT '19000101'
+          OR gs_data_scr-xloev   IS NOT INITIAL
+          OR gs_data_scr-xspeb   IS NOT INITIAL
+          OR gs_data_scr-zzblock IS NOT INITIAL.
+            CONTINUE.
+          ENDIF.
+          ra_anln1-sign = 'I'.
+          ra_anln1-option = 'EQ'.
+          ra_anln1-low = gs_data_scr-anln1.
+          APPEND ra_anln1.
+          ra_anln2-sign = 'I'.
+          ra_anln2-option = 'EQ'.
+          ra_anln2-low = gs_data_scr-anln2.
+          APPEND ra_anln2.
+        ENDLOOP.
+        IF sy-subrc EQ 0.
+          "определяем контрольный счёт
+          CLEAR: lv_gkont, lv_ktogr, ls_zaa_account_sub.
+          SELECT SINGLE ktogr INTO lv_ktogr FROM anka WHERE anlkl EQ gs_data_scr-ktogr.
+          IF sy-subrc EQ 0.
+            SELECT SINGLE * FROM zaa_account_sub INTO ls_zaa_account_sub WHERE bwasl EQ 'YJ1'
+                                                                           AND ktogr EQ lv_ktogr
+                                                                           AND afabe EQ '01'.
+            IF sy-subrc EQ 0.
+              lv_gkont = ls_zaa_account_sub-ktansg.
+            ENDIF.
+          ENDIF.
+          CLEAR: lv_belnr, lv_gjahr.
+          SET PARAMETER ID 'BLN' FIELD lv_belnr.
+          SET PARAMETER ID 'GJR' FIELD lv_gjahr.
+          "вызываем отчёт
+          export_title 'ПостНаНКС СобственРазработки НМА'.
+          SUBMIT zfiaa_abzon_na VIA SELECTION-SCREEN
+          WITH ip_bukrs EQ pa_bukrs
+          WITH is_anln1 IN ra_anln1
+          WITH is_anln2 IN ra_anln2
+          WITH ip_bwasl EQ 'YJ1'
+          WITH ip_gkont EQ lv_gkont
+          AND RETURN.
+          "сообщение
+          PERFORM send_mess_post.
+        ENDIF.
+      ENDIF.
+
+    WHEN 'ZPROC_2_1'.
+      "Удорожание (в т.ч. НалУчет)
+      lv_transvar = 'Y4UO'.
+      CALL METHOD gc_grid_main->get_selected_rows
+        IMPORTING
+          et_index_rows = gt_index_rows
+          et_row_no     = gt_row_no.
+      IF lines( gt_row_no ) NE 1.
+        MESSAGE s202(zfi_aa).
+      ELSE.
+        READ TABLE gt_row_no INTO gs_row_no WITH KEY sub_row_id = 0.
+        IF sy-subrc EQ 0.
+          READ TABLE gt_data_scr INTO gs_data_scr INDEX gs_row_no-row_id.
+          IF sy-subrc EQ 0.
+            export_title 'Удорожание (в т.ч. НалУчет)'.
+            SUBMIT zfiaa_abumn VIA SELECTION-SCREEN
+            WITH ip_bukrs EQ pa_bukrs
+            WITH ip_anln1 EQ gs_data_scr-anln1
+            WITH ip_anln2 EQ gs_data_scr-anln2
+            WITH ip_trava EQ lv_transvar
+            AND RETURN.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    WHEN 'ZPROC_2_2'.
+      "Удорожание (без НалУч)
+      lv_transvar = 'Y4UR'.
+      CALL METHOD gc_grid_main->get_selected_rows
+        IMPORTING
+          et_index_rows = gt_index_rows
+          et_row_no     = gt_row_no.
+      IF lines( gt_row_no ) NE 1.
+        MESSAGE s202(zfi_aa).
+      ELSE.
+        READ TABLE gt_row_no INTO gs_row_no WITH KEY sub_row_id = 0.
+        IF sy-subrc EQ 0.
+          READ TABLE gt_data_scr INTO gs_data_scr INDEX gs_row_no-row_id.
+          IF sy-subrc EQ 0.
+            export_title 'Удорожание (без НалУч)'.
+            SUBMIT zfiaa_abumn VIA SELECTION-SCREEN
+            WITH ip_bukrs EQ pa_bukrs
+            WITH ip_anln1 EQ gs_data_scr-anln1
+            WITH ip_anln2 EQ gs_data_scr-anln2
+            WITH ip_trava EQ lv_transvar
+            AND RETURN.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    WHEN 'ZPROC_2_3'.
+      "Перенос при удорож. с измен. СПИ
+      lv_transvar = 'Y4PU'.
+      CALL METHOD gc_grid_main->get_selected_rows
+        IMPORTING
+          et_index_rows = gt_index_rows
+          et_row_no     = gt_row_no.
+      IF lines( gt_row_no ) NE 1.
+        MESSAGE s202(zfi_aa).
+      ELSE.
+        READ TABLE gt_row_no INTO gs_row_no WITH KEY sub_row_id = 0.
+        IF sy-subrc EQ 0.
+          READ TABLE gt_data_scr INTO gs_data_scr INDEX gs_row_no-row_id.
+          IF sy-subrc EQ 0.
+            export_title 'Перенос при удорож. с измен. СПИ'.
+            SUBMIT zfiaa_abumn VIA SELECTION-SCREEN
+            WITH ip_bukrs EQ pa_bukrs
+            WITH ip_anln1 EQ gs_data_scr-anln1
+            WITH ip_anln2 EQ gs_data_scr-anln2
+            WITH ip_trava EQ lv_transvar
+            WITH ip_blart EQ '5P'
+            AND RETURN.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+......
+___________________________________________________________________________________________________________________
+" Еще один метод hotspot (Смотреть в блоке TOOLBAR выше)
+DATA: event_receiver TYPE REF TO lcl_event_receiver.
+*----------------------------------------------------------------------*
+*       CLASS lcl_event_receiver IMPLEMENTATION
+*----------------------------------------------------------------------*
+CLASS lcl_event_receiver IMPLEMENTATION.
+  METHOD function_selected.
+    PERFORM process_function USING fcode.
+  ENDMETHOD.                    "function_selected
+  METHOD hotspot_click.
+    PERFORM process_hotspot USING e_row_id
+                                  e_column_id
+                                  es_row_no.
+  ENDMETHOD.                    "hotspot_click
+ENDCLASS.                    "lcl_event_receiver IMPLEMENTATION
+*----------------------------------------------------------------------*
+*       CLASS lcl_event_receiver DEFINITION
+*----------------------------------------------------------------------*
+CLASS lcl_event_receiver DEFINITION.
+  PUBLIC SECTION.
+    METHODS function_selected
+                  FOR EVENT function_selected OF cl_gui_toolbar
+      IMPORTING fcode.
+    METHODS hotspot_click
+                  FOR EVENT hotspot_click OF cl_gui_alv_grid
+      IMPORTING e_row_id
+                  e_column_id
+                  es_row_no.
+  PRIVATE SECTION.
+ENDCLASS.                    "lcl_event_receiver DEFINITION
+
+DATA:
+gc_container_main    TYPE REF TO cl_gui_custom_container,
+gc_grid_main         TYPE REF TO cl_gui_alv_grid,
+gs_variant_main      TYPE disvariant,
+gt_fieldcatalog_main TYPE lvc_t_fcat,
+gs_fieldcatalog      TYPE lvc_s_fcat,
+gs_layout_main       TYPE lvc_s_layo.
+
+FIELD-SYMBOLS: <fs_fieldcatalog> LIKE gs_fieldcatalog.
+
+if gc_container_main is not bound.
+    create object gc_container_main
+      exporting
+        container_name              = 'CONTAINER_GRID_MAIN'
+      exceptions
+        cntl_error                  = 1
+        cntl_system_error           = 2
+        create_error                = 3
+        lifetime_error              = 4
+        lifetime_dynpro_dynpro_link = 5
+        others                      = 6.
+    if sy-subrc <> 0.
+      message id sy-msgid type sy-msgty number sy-msgno with sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    else.
+      create object gc_grid_main
+        exporting
+          i_parent          = gc_container_main
+        exceptions
+          error_cntl_create = 1
+          error_cntl_init   = 2
+          error_cntl_link   = 3
+          error_dp_create   = 4
+          others            = 5.
+      if sy-subrc <> 0.
+        message id sy-msgid type sy-msgty number sy-msgno with sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+      else.
+        gs_layout_main-no_rowmark = abap_false.
+        gs_layout_main-no_rowmark = ' '.
+        gs_layout_main-sel_mode   = 'A'.
+        gs_layout_main-cwidth_opt = 'X'.
+        gs_layout_main-zebra = 'X'.
+
+        read table gt_fieldcatalog_main assigning <fs_fieldcatalog> with key fieldname = 'STATUS'.
+        <fs_fieldcatalog>-icon = 'X'.
+        <fs_fieldcatalog>-just = 'C'.
+        <fs_fieldcatalog>-key = 'X'.
+        read table gt_fieldcatalog_main assigning <fs_fieldcatalog> with key fieldname = 'ANLN1'.
+        <fs_fieldcatalog>-key = 'X'.
+        <fs_fieldcatalog>-hotspot = 'X'.
+        read table gt_fieldcatalog_main assigning <fs_fieldcatalog> with key fieldname = 'ANLN2'.
+        <fs_fieldcatalog>-key = 'X'.
+        unassign <fs_fieldcatalog>.
+
+        set handler event_receiver->hotspot_click for gc_grid_main.
+
+        call method gc_grid_main->set_table_for_first_display
+          exporting
+            i_bypassing_buffer            = 'X'
+            is_variant                    = gs_variant_main
+            i_save                        = 'A'
+            is_layout                     = gs_layout_main
+          changing
+            it_outtab                     = gt_data_scr " Таблица с полями вывода
+            it_fieldcatalog               = gt_fieldcatalog_main
+          exceptions
+            invalid_parameter_combination = 1
+            program_error                 = 2
+            too_many_lines                = 3
+            others                        = 4.
+        if sy-subrc <> 0.
+          message id sy-msgid type sy-msgty number sy-msgno with sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+        endif.
+      endif.
+    endif.
+  else.
+    if gv_need_refresh eq 'X'.
+      gv_stable-row = 'X'.
+      call method gc_grid_main->refresh_table_display
+        exporting
+          is_stable = gv_stable
+        exceptions
+          finished  = 1
+          others    = 2.
+      if sy-subrc <> 0.
+        message id sy-msgid type sy-msgty number sy-msgno with sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+      endif.
+      clear: gv_need_refresh.
+    endif.
+  endif.
+endmodule.                 " PBO  OUTPUT
+
+*&---------------------------------------------------------------------*
+*&      Form  PROCESS_HOTSPOT
+*&---------------------------------------------------------------------*
+FORM process_hotspot USING p_row_id    TYPE lvc_s_row
+                           p_column_id TYPE lvc_s_col
+                           ps_row_no   TYPE lvc_s_roid.
+
+  CASE p_column_id-fieldname.
+    WHEN 'ANLN1'.
+      IF ps_row_no-sub_row_id EQ 0.
+        READ TABLE gt_data_scr INTO gs_data_scr INDEX ps_row_no-row_id.
+        IF sy-subrc EQ 0.
+          AUTHORITY-CHECK OBJECT 'S_TCODE'
+          ID 'TCD' FIELD 'AS03'.
+          IF sy-subrc NE 0.
+            MESSAGE s011(zfiaa_col) WITH 'AS03'.
+            EXIT.
+          ENDIF.
+          SET PARAMETER ID 'AN1' FIELD gs_data_scr-anln1.
+          SET PARAMETER ID 'AN2' FIELD gs_data_scr-anln2.
+          SET PARAMETER ID 'BUK' FIELD pa_bukrs.
+          CALL TRANSACTION 'AS03' AND SKIP FIRST SCREEN.
+        ENDIF.
+      ENDIF.
+    WHEN OTHERS.
+      MESSAGE p_column_id-fieldname TYPE 'S'.
+  ENDCASE.
+ENDFORM.                    " process_hotspot
+___________________________________________________________________________________________________________________
+" Создать средство поиска
+" Создаем ракурс справки: Таблицы/условия соединения(второстипенная таблица должна быть соеденена по внешнему ключу полями - галочка - ключевые поля, 1:CN), 
+" выбираем поля для отображения(поля ракурса), Добавляем условия выбора если надо.
+" Таблицы
+ZVA_TB_MAIN_DATA
+ZVA_TB_FILLINGS(внешний ключ полей OBJECT_ID, OBJECT_NUMBER к таблице ZVA_TB_MAIN_DATA)
+Условия Join
+ZVA_TB_FILLINGS	MANDT	=	ZVA_TB_MAIN_DATA	MANDT
+ZVA_TB_FILLINGS	OBJECT_ID	=	ZVA_TB_MAIN_DATA	OBJECT_ID
+ZVA_TB_FILLINGS	OBJECT_NUMBER	=	ZVA_TB_MAIN_DATA	OBJECT_NUMBER 
+" Поля
+MANDT	ZVA_TB_FILLINGS	MANDT	MANDT
+OBJECT_ID	ZVA_TB_FILLINGS	OBJECT_ID	ZVA_TP_OBJECT_ID
+OBJECT_NUMBER	ZVA_TB_FILLINGS	OBJECT_NUMBER	ZVA_TP_OBJECT_NUMBER
+BEGIN_DATE	ZVA_TB_MAIN_DATA	BEGIN_DATE	ZVA_TP_BEGIN_DATE
+CREATOR	ZVA_TB_MAIN_DATA	CREATOR	ZVA_TP_CREATOR
+RESPONSIBLE	ZVA_TB_MAIN_DATA	RESPONSIBLE	ZVA_TP_RESPONSIBLE
+OBJ_STATUS	ZVA_TB_MAIN_DATA	OBJ_STATUS	ZVA_TP_OBJ_STATUS
+NOTATION	ZVA_TB_MAIN_DATA	NOTATION	ZVA_TP_NOTATION
+LETTER	ZVA_TB_FILLINGS	LETTER	ZVA_TP_LETTER
+FILLING_NUMBER	ZVA_TB_FILLINGS	FILLING_NUMBER	ZVA_TP_FILLING_NUMBER
+" Условия выбора
+ZVA_TB_MAIN_DATA	OBJ_STATUS	EQ	'01'	OR
+ZVA_TB_MAIN_DATA	OBJ_STATUS	EQ	'03'
+
+
+" Если требуется специфическая выборка, нужно создать специальный ФМ выбора
+" Копируем из стандартного ФМ F4IF_SHLP_EXIT_EXAMPLE(там все описано как работать)
+" На примере: Копируем в ФМ - ZVA_FN_PERSNO_F4IF_SHLP_EXIT(отобрать по пользователю)
+FUNCTION ZVA_FN_PERSNO_F4IF_SHLP_EXIT.
+*"--------------------------------------------------------------------
+*"*"Локальный интерфейс:
+*"  TABLES
+*"      SHLP_TAB TYPE  SHLP_DESCT
+*"      RECORD_TAB STRUCTURE  SEAHLPRES
+*"  CHANGING
+*"     VALUE(SHLP) TYPE  SHLP_DESCR
+*"     VALUE(CALLCONTROL) LIKE  DDSHF4CTRL STRUCTURE  DDSHF4CTRL
+*"--------------------------------------------------------------------
+
+  " Выборка записей по ответственному
+  IF callcontrol-step = 'SELONE'.
+    DATA: ls_shlp   TYPE ddshselopt,
+          lv_persno TYPE zhr_empl_pernr.
+    FIELD-SYMBOLS <shlp> TYPE shlp_descr.
+
+    " Получение табельного номера сотрудника по пользователю
+    CLEAR lv_persno.
+    CALL FUNCTION 'ZHR_STMT_GET_PERNR_BY_UNAME'
+      IMPORTING
+        ev_empl_pernr = lv_persno.
+
+    READ TABLE shlp_tab INDEX 1 ASSIGNING <shlp>.
+    CHECK sy-subrc = 0.
+    CLEAR ls_shlp.
+    ls_shlp-shlpname = <shlp>-shlpname.
+    ls_shlp-shlpfield = 'RESPONSIBLE'.
+    ls_shlp-sign = 'I'.
+    ls_shlp-option = 'EQ'.
+    ls_shlp-low = lv_persno.
+    APPEND ls_shlp TO <shlp>-selopt.
+    EXIT.
+  ENDIF.
+ENDFUNCTION.
+
+FUNCTION zhr_stmt_get_pernr_by_uname.
+*"----------------------------------------------------------------------
+*"*"Локальный интерфейс:
+*"  IMPORTING
+*"     VALUE(IV_DATUM) TYPE  SY-DATUM DEFAULT SY-DATUM
+*"     VALUE(IV_UNAME) TYPE  XUBNAME DEFAULT SY-UNAME
+*"  EXPORTING
+*"     VALUE(EV_SUBRC) TYPE  SY-SUBRC
+*"     VALUE(EV_EMPL_PERNR) TYPE  ZHR_EMPL_PERNR
+*"  CHANGING
+*"     VALUE(CT_MESSAGE) TYPE  ZHR_TT_MESSAGE OPTIONAL
+*"----------------------------------------------------------------------
+
+  SELECT SINGLE pernr
+    INTO ev_empl_pernr
+    FROM pa0105
+    WHERE usrid = iv_uname
+      AND subty = '0001'
+      AND endda = ( SELECT MAX( endda )
+                      FROM pa0105
+                      WHERE usrid = iv_uname
+                        AND subty = '0001' ).
+
+  ev_subrc = sy-subrc.
+
+" В средстве поиска в метод выбора добавляем наш созданный ракурс
+" ПользвСредствПоиска добавляем наш ФМ
+" В параметры добавляем поля из ракурса: галочка импорт это те данные которые мы достаем из средства поиска, галочка экспорт это те которые отображаем
+___________________________________________________________________________________________________________________
+" Обращение по ссылке REF
+types:
+    BEGIN OF ts_ref_cust_obj,
+        cust_objname         TYPE ob_object,
+        content_cust_objname TYPE REF TO data,
+      END OF ts_ref_cust_obj .
+types:
+    tt_ref_cust_obj TYPE STANDARD TABLE OF ts_ref_cust_obj .
+
+DATA:
+ls_content_from_cust_obj TYPE ts_ref_cust_obj,
+lr_content_ref           TYPE REF TO data.
+
+FIELD-SYMBOLS: <lt_content> TYPE STANDARD TABLE.
+
+TRY.
+CREATE DATA lr_content_ref TYPE TABLE OF (<lf_data>-subobjname).
+IF lr_content_ref IS BOUND.
+ASSIGN lr_content_ref->* TO <lt_content>.
+CHECK <lt_content> IS ASSIGNED.
+CLEAR lr_content_ref.
+ELSE.
+CONTINUE.
+ENDIF.
+CATCH cx_sy_create_data_error .
+RETURN.
+ENDTRY.
+
+ls_content_from_cust_obj-content_cust_objname = REF #( <lt_content> ).
+UNASSIGN <lt_content>.
+
+" insert table to ref field.
+ls_orgdata = VALUE #( org_unit_type = 'Company' org_record = REF #( lt_cmp ) ).
+___________________________________________________________________________________________________________________
+" Define view type
+CLEAR lt_dd02v.
+CALL FUNCTION 'ESH_INT_GET_DDIC_TABLE_DATA'
+EXPORTING
+  iv_ddic_name = <lf_data>-subobjname
+IMPORTING
+  et_dd02v     = lt_dd02v.
+READ TABLE lt_dd02v INTO DATA(ls_dd02v) INDEX 1.
+___________________________________________________________________________________________________________________
+" Reading Maintenance View, because we can't do straight select from DB for this type of views
+CALL FUNCTION 'VIEW_GET_DATA'
+EXPORTING
+  view_name              = <lf_data>-subobjname
+TABLES
+  data                   = <lt_content>
+EXCEPTIONS
+  no_viewmaint_tool      = 1
+  no_authority           = 2
+  no_auth_for_sel        = 3
+  data_access_restricted = 4
+  no_functiongroup       = 5
+  OTHERS                 = 6.
+___________________________________________________________________________________________________________________
+" CHECK - exist DB object or not 
+TRY.
+  <lf_data>-subobjname = cl_abap_dyn_prg=>check_table_or_view_name_str(
+										  val = CONV #( <lf_data>-subobjname )
+										  packages = space
+										  incl_sub_packages = abap_true ).
+CATCH cx_abap_not_a_table cx_abap_not_in_package.
+  CONTINUE.
+ENDTRY.
+___________________________________________________________________________________________________________________
+" Loop without dublicates
+" OLD
+DATA(lt_data) = it_data.
+SORT lt_data BY cust_objtype cust_objname subobjname.
+DELETE ADJACENT DUPLICATES FROM lt_data COMPARING cust_objtype cust_objname subobjname.
+
+"NEW
+ LOOP AT it_data INTO DATA(ls_data) WHERE subobjname IS NOT INITIAL
+        GROUP BY ( subobjname = ls_data-subobjname cust_objtype = ls_data-cust_objtype ) ASSIGNING FIELD-SYMBOL(<lf_data>).
+	<lf_data>...	
+ENDLOOP.
+___________________________________________________________________________________________________________________
+" String to table dy dynamic structure
+DATA lr_data    TYPE REF TO data.
+
+FIELD-SYMBOLS: <lf_value>   TYPE any.
+
+CHECK iv_subobjname IS NOT INITIAL.
+TRY.
+CREATE DATA lr_data TYPE (iv_subobjname).
+IF lr_data IS BOUND.
+ASSIGN lr_data->* TO <lf_value>.
+CHECK <lf_value> IS ASSIGNED.
+CLEAR lr_data.
+ELSE.
+RETURN.
+ENDIF.
+CATCH cx_sy_create_data_error .
+RETURN.
+ENDTRY.
+
+LOOP AT lt_content ASSIGNING FIELD-SYMBOL(<lf_content>).
+cl_abap_container_utilities=>read_container_c(
+EXPORTING
+im_container           = <lf_content>-default                  " Container with Data Content
+IMPORTING
+ex_value               = <lf_value>                 " Field To Be Filled with Container Data
+EXCEPTIONS
+illegal_parameter_type = 1                " Invalid Type for the Parameter EX_VALUE
+OTHERS                 = 2
+).
+
+APPEND <lf_value> TO et_content.
+UNASSIGN <lf_value>.
+___________________________________________________________________________________________________________________
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] I_V_TEXT                       TYPE        STRING - message in running string
+* | [--->] I_V_LINES                      TYPE        INT4	 - all lines in table
+* | [--->] I_V_CURRENT_LINE               TYPE        INT4	 - sy-tabix
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD show_gui_indicator.
+
+IF i_v_current_line IS NOT INITIAL AND
+   i_v_lines        IS NOT INITIAL.
+
+  DATA(l_v_percent) = ( i_v_current_line * 100 ) / i_v_lines.
+  DATA(l_v_percent_prev) = ( ( i_v_current_line - 1 ) * 100 ) / i_v_lines.
+
+  WHILE l_v_percent > l_v_percent_prev.
+
+	DATA(l_v_mod) = l_v_percent MOD 1.
+
+	IF l_v_mod = 0.
+
+	  CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+		EXPORTING
+		  percentage = l_v_percent
+		  text       = |{ i_v_text } { l_v_percent }%|.
+
+	  EXIT.
+	ENDIF.
+
+	l_v_percent = l_v_percent - 1.
+
+  ENDWHILE.
+
+ELSE.
+
+  CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+	EXPORTING
+	  text = i_v_text.
+
+ENDIF.
+
+ENDMETHOD.
+___________________________________________________________________________________________________________________
+" local search help
+*AT SELECTION-SCREEN ON VALUE-REQUEST FOR so_tabnm-low.
+*  CLEAR lt_sh_tabname.
+*  SELECT t1~tabname t2~ddtext
+*    INTO TABLE lt_sh_tabname
+*    FROM dd02l AS t1
+*    JOIN dd02t AS t2
+*    ON t1~tabname = t2~tabname
+*    WHERE t1~tabclass <> /smb/if_x4_ccp_constant=>gc_s_tabclasses-inttab
+*      AND t1~tabclass <> /smb/if_x4_ccp_constant=>gc_s_tabclasses-append.
+*  IF sy-subrc = 0.
+*    CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+*      EXPORTING
+*        retfield        = 'TABNAME'
+*        dynpprog        = sy-repid
+*        dynpnr          = sy-dynnr
+*        dynprofield     = 'SO_TABNM'
+*        value_org       = 'S'
+*      TABLES
+*        value_tab       = lt_sh_tabname
+*      EXCEPTIONS
+*        parameter_error = 1
+*        no_values_found = 2
+*        OTHERS          = 3.
+*    IF sy-subrc <> 0.
+** Implement suitable error handling here
+*    ENDIF.
+*  ENDIF.
+___________________________________________________________________________________________________________________
+" Report with buttons that call other reports
+TABLES: sscrfields.
+
+SELECTION-SCREEN PUSHBUTTON /1(60) b_x4_ccp USER-COMMAND b_x4_ccp VISIBLE LENGTH 30.
+SELECTION-SCREEN PUSHBUTTON /1(60) b_tab_cn USER-COMMAND b_tab_cn VISIBLE LENGTH 30.
+
+***********************
+* AT SELECTION-SCREEN *
+***********************
+AT SELECTION-SCREEN.
+  CASE sscrfields-ucomm.
+    WHEN 'B_X4_CPP'.
+      SUBMIT /smb/r_x4_ccp VIA SELECTION-SCREEN AND RETURN.
+    WHEN 'B_TAB_CN'.
+      SUBMIT /smb/r_tables_count VIA SELECTION-SCREEN AND RETURN.
+    WHEN OTHERS.
+  ENDCASE.
+
+******************
+* INITIALIZATION *
+******************
+INITIALIZATION.
+DATA: ls_dyntxt TYPE smp_dyntxt ##NEEDED.
+* additional buttons
+ls_dyntxt-text      = 'Programs in HOME Objects'.
+ls_dyntxt-icon_id   = icon_sap.
+ls_dyntxt-icon_text = 'Home'.
+sscrfields-functxt_01 = ls_dyntxt.
+
+" report - /smb/r_x4_ccp
+CALL FUNCTION 'ICON_CREATE'
+EXPORTING
+  name   = icon_import
+  text   =  TEXT-001
+IMPORTING
+  result = b_x4_ccp.
+
+" report - /smb/r_tables_count
+CALL FUNCTION 'ICON_CREATE'
+EXPORTING
+  name   = icon_sum
+  text   = TEXT-002
+IMPORTING
+  result = b_tab_cn.
+___________________________________________________________________________________________________________________
+" Excluding records by mask
+DATA(lo_black_list) = /smb/cl_blklst=>get_instance( ).
+DATA(lt_black_list) = lo_black_list->get_all_data( ).
+
+CLEAR lt_tabname[].
+LOOP AT lt_black_list ASSIGNING FIELD-SYMBOL(<fs_black_list>).
+IF <fs_black_list>-mask_indicator = abap_false.
+  APPEND VALUE #( sign = /smb/if_x4_ccp_constant=>gc_s_sign-include
+				  option = /smb/if_x4_ccp_constant=>gc_s_option-eq
+				  low = <fs_black_list>-name ) TO lt_tabname[].
+
+ELSEIF <fs_black_list>-name CA /smb/if_x4_ccp_constant=>gc_star_char.
+  APPEND VALUE #( sign = /smb/if_x4_ccp_constant=>gc_s_sign-include
+				  option = /smb/if_x4_ccp_constant=>gc_s_option-cp
+				  low = <fs_black_list>-name ) TO lt_tabname[].
+
+ELSE.
+  APPEND VALUE #( sign = /smb/if_x4_ccp_constant=>gc_s_sign-include
+				  option = /smb/if_x4_ccp_constant=>gc_s_option-cp
+				  low = <fs_black_list>-name && /smb/if_x4_ccp_constant=>gc_star_char ) TO lt_tabname[].
+
+ENDIF.
+ENDLOOP.
+
+IF lt_tabname[] IS NOT INITIAL.
+DELETE lt_tab_data WHERE tabname IN lt_tabname.
+ENDIF.
+___________________________________________________________________________________________________________________
+" Select with input values in select statement
+DATA: l_rng_langu       TYPE RANGE OF dokil-langu.
+SELECT DISTINCT spras AS low, 'I' AS sign, 'EQ' AS option
+        INTO CORRESPONDING FIELDS OF TABLE @l_rng_langu[]
+        BYPASSING BUFFER
+        FROM t002.
+___________________________________________________________________________________________________________________
+" Condition and escape(check for correct value)
+e_v_tab_not_found = COND #( WHEN e_v_tab_not_found IS INITIAL
+                                  THEN escape( val    = <l_v_not_found>
+                                               format = cl_abap_format=>e_json_string )
+                                  ELSE e_v_tab_not_found && ',' && escape( val    = <l_v_not_found>
+                                                                           format = cl_abap_format=>e_json_string ) ).
+___________________________________________________________________________________________________________________
+" Dynamic adding value to internal table
+APPEND INITIAL LINE TO <l_tab_content> ASSIGNING <l_str_new_content>.
+LOOP AT l_tab_tr_key ASSIGNING FIELD-SYMBOL(<l_str_tr_key>).
+  ASSIGN COMPONENT <l_str_tr_key>-fieldname OF STRUCTURE <l_str_new_content> TO FIELD-SYMBOL(<l_v_value>).
+  IF sy-subrc = 0.
+	<l_v_value> = <l_str_tr_key>-fieldvalue.
+  ENDIF.
+ENDLOOP.
+___________________________________________________________________________________________________________________
+" Dynamic Where condition for select
+ASSIGN COMPONENT <l_str_tr_key>-fieldname OF STRUCTURE <l_str_struc> TO FIELD-SYMBOL(<lv_val>).
+IF sy-subrc = 0.
+<lv_val> = <l_str_tr_key>-fieldvalue.
+
+IF l_v_conditions IS INITIAL.
+  l_v_conditions = |{ <l_str_tr_key>-fieldname } = @<l_str_struc>-{ <l_str_tr_key>-fieldname }|.
+ELSE.
+  l_v_conditions = |{ l_v_conditions } AND { <l_str_tr_key>-fieldname } = @<l_str_struc>-{ <l_str_tr_key>-fieldname }|.
+ENDIF.
+
+ENDIF.
+
+SELECT *
+FROM (<l_str_content>-tabname)
+INTO TABLE @<l_tab_content>
+WHERE (l_v_conditions).
+
+OR---------------------------------------------------------------------------
+DATA: l_str_cond            TYPE hrcond,
+	  l_tab_cond            TYPE string_table.
+CLEAR: l_tab_where, l_tab_cond.
+
+LOOP AT i_tab_tr_key ASSIGNING FIELD-SYMBOL(<l_str_tr_key>).
+  APPEND VALUE #( field = <l_str_tr_key>-fieldname
+				  opera = /smb/if_ddic_sync_constant=>con_str_rng_option-eq
+				  low   = <l_str_tr_key>-fieldvalue ) TO l_tab_cond.
+ENDLOOP.
+
+CALL FUNCTION 'RH_DYNAMIC_WHERE_BUILD'
+  EXPORTING
+	dbtable         = tabname
+  TABLES
+	condtab         = l_tab_cond (max 20 char.)
+	where_clause    = l_tab_where
+  EXCEPTIONS
+	empty_condtab   = 1
+	no_db_field     = 2
+	unknown_db      = 3
+	wrong_condition = 4
+	OTHERS          = 5.
+IF sy-subrc <> 0.
+  RETURN.
+ENDIF.	 
+
+SELECT *
+FROM (tabname)
+APPENDING TABLE @<l_tab_content>
+WHERE (l_tab_where). 
+___________________________________________________________________________________________________________________
+" Work with text
+" 1. Add TEXT to Tables STXH and STXL: TCode se75->Enviroment->Standard text
+" Text Name            Z575ST_MM_BASIC_VIEW_UPDATE
+" Text ID              ST   Standard text
+" Language             EN
+" Press Create and insert text-> save
+
+DATA: l_t_tline      TYPE TABLE OF tline,
+	  l_r_tline      TYPE tline,
+	  l_r_text       TYPE soli,
+	  l_t_text       TYPE TABLE OF soli.
+
+CONSTANTS : l_c_lang TYPE spras VALUE 'E',
+            l_c_id   TYPE tdid VALUE 'ST',
+            l_c_name TYPE tdobname VALUE 'Z575ST_MM_BASIC_VIEW_UPDATE',
+            l_c_obj  TYPE tdobject VALUE 'TEXT'.
+
+CALL FUNCTION 'READ_TEXT'
+EXPORTING
+  client                  = sy-mandt
+  id                      = l_c_id
+  language                = l_c_lang
+  name                    = l_c_name
+  object                  = l_c_obj
+  archive_handle          = 0
+  local_cat               = ' '
+TABLES
+  lines                   = l_t_tline
+EXCEPTIONS
+  id                      = 1
+  language                = 2
+  name                    = 3
+  not_found               = 4
+  object                  = 5
+  reference_check         = 6
+  wrong_access_to_archive = 7
+  OTHERS                  = 8.
+
+IF sy-subrc <> 0.
+MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+ELSE.
+LOOP AT l_t_tline INTO l_r_tline.
+  l_r_text = l_r_tline-tdline.
+  APPEND l_r_text TO l_t_text.
+  CLEAR l_r_text.
+ENDLOOP.
+ENDIF.
+
+" To save text use 
+DATA: l_s_thead TYPE thead,
+	  l_v_name  TYPE tdname,
+	  g_t_tline TYPE TABLE OF tline. " Fill in this table with text
+
+IF i_v_pr IS NOT INITIAL AND i_v_bnfpo IS NOT INITIAL.
+	l_v_name = |{ i_v_pr }{ i_v_bnfpo }|.
+ENDIF.
+
+" Fill in head structure
+l_s_thead-tdobject = g_c_eban.
+l_s_thead-tdid     = g_c_b02.
+l_s_thead-tdspras  = sy-langu.
+l_s_thead-tdname   = l_v_name.
+
+" Writes a text module to the text memory
+CALL FUNCTION 'SAVE_TEXT'
+  EXPORTING
+	client          = sy-mandt
+	header          = l_s_thead
+	savemode_direct = abap_true
+  TABLES
+	lines           = g_t_tline
+  EXCEPTIONS
+	id              = 1
+	language        = 2
+	name            = 3
+	object          = 4
+	OTHERS          = 5.
+___________________________________________________________________________________________________________________
+" MM BAPI for saving data to tables
+DATA:
+  l_t_extensionin   TYPE TABLE OF bapiparex,
+  l_t_extensioninx  TYPE TABLE OF bapiparexx,
+  l_r_headdata      TYPE bapimathead,
+  l_r_return        TYPE bapiret2,
+  l_r_bapi_mara     TYPE bapi_mara,
+  l_r_bapi_marax    TYPE bapi_marax,
+  l_r_bapi_te_mara  TYPE bapi_te_mara,
+  l_r_bapi_te_marax TYPE bapi_te_marax,
+  l_r_bapiparex     TYPE bapiparex,
+  l_r_bapiparexx    TYPE bapiparexx,
+  l_t_bapi_makt     TYPE TABLE OF bapi_makt.
+
+CONSTANTS :
+  l_c_bapi_mara  TYPE char12 VALUE 'BAPI_TE_MARA',
+  l_c_bapi_marax TYPE char13 VALUE 'BAPI_TE_MARAX'.
+
+FIELD-SYMBOLS :
+  <l_r_mara>  TYPE any,
+  <l_r_marax> TYPE any.
+
+LOOP AT g_t_material_basic_view_upd ASSIGNING FIELD-SYMBOL(<l_r_material_basic_view_upd>).
+*material master update
+*-------------------------
+*standard fields
+*-------------------------
+
+*header data
+  l_r_headdata-material       =   <l_r_material_basic_view_upd>-matnr."Material number*     Fill in header structure
+  l_r_headdata-basic_view     =   abap_true."BASIC VIEW
+
+*-----------------------------
+*standard fields for basic view
+*-----------------------------
+  " Spart
+  l_r_bapi_mara-division = <l_r_material_basic_view_upd>-spart.
+  l_r_bapi_marax-division = abap_true.
+
+  " Material Group
+  l_r_bapi_mara-matl_group = <l_r_material_basic_view_upd>-matkl.
+  l_r_bapi_marax-matl_group = abap_true.
+
+*-----------------------------
+*description for basic view
+*-----------------------------
+  APPEND VALUE #( langu = <l_r_material_basic_view_upd>-spras
+				  langu_iso = <l_r_material_basic_view_upd>-spras
+				  matl_desc = <l_r_material_basic_view_upd>-maktx ) TO l_t_bapi_makt.
+*-----------------------------
+*custom fields for basic view
+*-----------------------------
+  l_r_bapi_te_mara-material = <l_r_material_basic_view_upd>-matnr.
+  l_r_bapi_te_marax-material = <l_r_material_basic_view_upd>-matnr.
+
+  "Suppl.part.no
+  l_r_bapi_te_mara-zzltnr = <l_r_material_basic_view_upd>-zzltnr.
+  l_r_bapi_te_marax-zzltnr  = abap_true.
+
+  " GLOBUS Partnumber
+  l_r_bapi_te_mara-zzmer_neu = <l_r_material_basic_view_upd>-zzmer_neu.
+  l_r_bapi_te_marax-zzmer_neu = abap_true.
+
+  " Item Code Type
+  l_r_bapi_te_mara-zzsntyp = <l_r_material_basic_view_upd>-zzsntyp.
+  l_r_bapi_te_marax-zzsntyp = abap_true.
+
+*     Extension data for customize fields
+  CLEAR l_r_bapiparex.
+
+  l_r_bapiparex-structure  = l_c_bapi_mara.
+
+  ASSIGN l_r_bapi_te_mara TO <l_r_mara>.
+  IF <l_r_mara> IS ASSIGNED.
+	l_r_bapiparex-valuepart1 = <l_r_mara>+0(240).
+	l_r_bapiparex-valuepart2 = <l_r_mara>+240(240).
+	l_r_bapiparex-valuepart3 = <l_r_mara>+480(52).
+	APPEND l_r_bapiparex TO l_t_extensionin.
+  ENDIF.
+  CLEAR l_r_bapiparex.
+
+  l_r_bapiparexx-structure  = l_c_bapi_marax.
+  ASSIGN l_r_bapi_te_marax TO <l_r_marax>.
+  IF <l_r_marax> IS ASSIGNED.
+	l_r_bapiparexx-valuepart1  = <l_r_marax>."material
+	APPEND l_r_bapiparexx TO l_t_extensioninx.
+  ENDIF.
+  CLEAR l_r_bapiparexx.
+
+*==========================================
+*     Call BAPI to update validated data in MARA table for Basic View
+*==========================================
+  CALL FUNCTION 'BAPI_MATERIAL_SAVEDATA'
+	EXPORTING
+	  headdata            = l_r_headdata
+	  clientdata          = l_r_bapi_mara
+	  clientdatax         = l_r_bapi_marax
+	IMPORTING
+	  return              = l_r_return
+	TABLES
+	  materialdescription = l_t_bapi_makt
+	  extensionin         = l_t_extensionin
+	  extensioninx        = l_t_extensioninx.
+
+*     Check result
+  READ TABLE g_t_material_basic_view_alv ASSIGNING FIELD-SYMBOL(<l_r_material_basic_view_alv>)
+										  WITH KEY matnr = <l_r_material_basic_view_upd>-matnr.
+  IF l_r_return-type CA 'AXE'.
+*       Roll back all data update
+	CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+	<l_r_material_basic_view_upd>-zzremarks = l_r_return-message.
+	IF <l_r_material_basic_view_alv> IS ASSIGNED.
+	  <l_r_material_basic_view_alv>-zzremarks = l_r_return-message.
+	ENDIF.
+  ELSE.
+*       Success: add custom message
+	IF p_test IS NOT INITIAL.
+*         Test run: No Database commit
+	  CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+	  <l_r_material_basic_view_upd>-zzremarks = TEXT-016.
+	  IF <l_r_material_basic_view_alv> IS ASSIGNED.
+		<l_r_material_basic_view_alv>-zzremarks = TEXT-016.
+	  ENDIF.
+	ELSE.
+*         Commit Database changes
+	  CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+		EXPORTING
+		  wait = abap_true.
+	  <l_r_material_basic_view_upd>-zzremarks = 'Material master is updated successfully'(029).
+	  IF <l_r_material_basic_view_alv> IS ASSIGNED.
+		<l_r_material_basic_view_alv>-zzremarks = 'Material master is updated successfully'(029).
+	  ENDIF.
+	ENDIF.
+  ENDIF.
+*     Clear variables
+  CLEAR: l_t_extensionin[], l_t_extensioninx[],
+		 l_r_bapiparex, l_r_bapiparexx,
+		 l_r_bapi_mara, l_r_bapi_marax,
+		 l_r_bapi_te_mara, l_r_bapi_te_marax,
+		 l_r_headdata, l_r_return, l_t_bapi_makt.
+ENDLOOP.
+___________________________________________________________________________________________________________________
+" Getting latest date - MAX with FOR ALL ENTRIES
+SELECT DISTINCT matnr, banfn, werks, erdat
+    FROM eban
+    INTO TABLE @DATA(l_t_all_eban)
+    FOR ALL ENTRIES IN @l_t_materials
+    WHERE matnr = @l_t_materials-matnr
+      AND werks = @l_t_materials-werks
+      AND bsart = @l_c_bsart. " RV
+IF sy-subrc = 0.
+  SORT l_t_all_eban.
+  DELETE ADJACENT DUPLICATES FROM l_t_all_eban.
+ENDIF.
+" Getting latest PRs by date - erdat
+SORT l_t_all_eban BY matnr werks erdat DESCENDING.
+DATA(l_t_eban) = l_t_all_eban.
+CLEAR l_t_eban.
+LOOP AT l_t_all_eban ASSIGNING FIELD-SYMBOL(<l_f_all_eban>).
+  AT NEW matnr.
+	APPEND <l_f_all_eban> TO l_t_eban.
+  ENDAT.
+ENDLOOP.
+FREE l_t_all_eban.
+___________________________________________________________________________________________________________________
+" Fetch data with field lenght condition
+SELECT * FROM lfa1 INTO TABLE lt_tab
+WHERE mcod1 LIKE '______%'. ( 6 underscores '_' followed by % ).
+"This query will fetch all the records where mcod1 is having at least 6 characters ( including blank space ).
+___________________________________________________________________________________________________________________
+" Start new LUW - FM STARTING NEW TASK
+" 1. Create FM
+FUNCTION z575f_mm_create_auto_globus_pr.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  EXPORTING
+*"     VALUE(E_V_BANFN) TYPE  BANFN
+*"  TABLES
+*"      C_T_REQUISITION_ITEMS STRUCTURE  BAPIEBANC
+*"      C_T_RETURN STRUCTURE  BAPIRETURN
+*"  CHANGING
+*"     VALUE(C_V_BANFN) TYPE  BANFN
+*"----------------------------------------------------------------------
+  CALL FUNCTION 'BAPI_REQUISITION_CREATE'
+    IMPORTING
+      number            = c_v_banfn
+    TABLES
+      requisition_items = c_t_requisition_items
+      return            = c_t_return.
+
+  " Don't call commit because it called in report Z575R_AUTO_GLOBUS_PR after sending PR to GLOBUS for status receiving
+  " But in general Commit have to be here
+
+ENDFUNCTION.
+
+" 2. Create call of FM in the report
+
+DATA: 
+g_v_taskname(8)       TYPE c VALUE 'TASK01',
+g_v_separatetask_done TYPE abap_bool,
+g_t_return            TYPE STANDARD TABLE OF bapireturn,
+g_v_banfn             TYPE banfn.
+
+" DEFINITION
+pbs_set_function_done  IMPORTING p_task TYPE clike, " Do not change name - mandatory name for STARTING NEW TASK
+
+" IMPLEMENTATION
+METHOD pbs_set_function_done.
+
+    RECEIVE RESULTS FROM FUNCTION 'Z575F_MM_CREATE_AUTO_GLOBUS_PR'
+      TABLES
+        c_t_return             = g_t_return
+      CHANGING
+        c_v_banfn              = g_v_banfn.
+
+    g_v_separatetask_done = abap_true.
+
+  ENDMETHOD.
+
+CALL FUNCTION 'Z575F_MM_CREATE_AUTO_GLOBUS_PR'
+          STARTING NEW TASK g_v_taskname
+          DESTINATION IN GROUP DEFAULT
+          CALLING pbs_set_function_done ON END OF TASK " From this method we receive created data to global variables
+          TABLES
+            c_t_requisition_items = l_t_requisition_items. " Only input parameters for BAPI
+WAIT UNTIL g_v_separatetask_done = abap_true.
+
+" Check result
+l_s_return = g_t_return[ 1 ].
+IF l_s_return-type CA 'AXE'.
+ELSE.
+" Work with global variables
+g_v_banfn ...
+ENDIF.
+___________________________________________________________________________________________________________________
+" Release TR to other system
+1. se10 - create Transport of Copies (with T instead of W in description and target system LQ2.900)
+2. Add all subtasks to TR and release
+3. Use STMS in target system to release changes
+___________________________________________________________________________________________________________________
+" Create range from DATUM for TIMESTAMP
+DATA: lv_low_min   TYPE timestamp,
+        lv_low_max   TYPE timestamp,
+        lv_high      TYPE timestamp,
+        lr_crea_time TYPE RANGE OF bds_bar_in-crea_time.
+
+* date conversion from date to timestamp
+  CLEAR lr_crea_time.
+  LOOP AT s_crdat ASSIGNING FIELD-SYMBOL(<ls_crdat>).
+
+    APPEND INITIAL LINE TO lr_crea_time ASSIGNING FIELD-SYMBOL(<ls_crea_time>).
+    <ls_crea_time>-sign    = <ls_crdat>-sign.
+    <ls_crea_time>-option  = <ls_crdat>-option.
+
+    IF <ls_crdat>-low IS INITIAL.
+      CLEAR: lv_low_min, lv_low_max.
+    ELSE.
+      CONVERT DATE <ls_crdat>-low TIME '000000' INTO TIME STAMP lv_low_min TIME ZONE sy-zonlo.
+      CONVERT DATE <ls_crdat>-low TIME '235959' INTO TIME STAMP lv_low_max TIME ZONE sy-zonlo.
+    ENDIF.
+    IF <ls_crdat>-high IS INITIAL.
+      CLEAR: lv_high.
+    ELSE.
+      CONVERT DATE <ls_crdat>-high TIME '235959' INTO TIME STAMP lv_high TIME ZONE sy-zonlo.
+    ENDIF.
+
+    CASE <ls_crdat>-option.
+      WHEN 'EQ'.
+        <ls_crea_time>-option  = 'BT'.
+        <ls_crea_time>-low     = lv_low_min.
+        <ls_crea_time>-high    = lv_low_max.
+      WHEN 'NE'.
+        <ls_crea_time>-option  = 'NB'.
+        <ls_crea_time>-low     = lv_low_min.
+        <ls_crea_time>-high    = lv_low_max.
+      WHEN 'GE'.
+        <ls_crea_time>-low     = lv_low_min.
+      WHEN 'GT'.
+        <ls_crea_time>-low     = lv_low_max.
+      WHEN 'LE'.
+        <ls_crea_time>-low     = lv_low_max.
+      WHEN 'LT'.
+        <ls_crea_time>-low     = lv_low_min.
+      WHEN 'BT'.
+        <ls_crea_time>-low     = lv_low_min.
+        <ls_crea_time>-high    = lv_high.
+      WHEN 'NB'.
+        <ls_crea_time>-low     = lv_low_min.
+        <ls_crea_time>-high    = lv_high.
+    ENDCASE.
+
+  ENDLOOP.
+___________________________________________________________________________________________________________________
